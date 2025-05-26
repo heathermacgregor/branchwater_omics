@@ -6,6 +6,8 @@ import pandas as pd
 
 # ================================== LOCAL IMPORTS =================================== #
 
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(parent_dir)
 from branchwater_omics.figures.pangenome import (
     completeness_vs_contamination, 
     contig_vs_scaffold,
