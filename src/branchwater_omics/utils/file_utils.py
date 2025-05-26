@@ -306,3 +306,54 @@ def build_and_parse_file_dict(directory, sub_dirs=None, files=None, parsed=True)
     pbar.close()
     return dict(file_dict)
 
+
+def combine_loaded_data(loaded_data: List[Dict]) -> pd.DataFrame:
+    """
+    Combines loaded data from load_grouped_data into a single consolidated DataFrame.
+
+    Merges m8 alignment data with metadata and JSON results (MMseqs90 and Motupan)
+    into one row per alignment, enriched with contextual information.
+
+    Args:
+        loaded_data: Output from load_grouped_data(), containing structured data entries
+
+    Returns:
+        pd.DataFrame: Consolidated dataframe with all alignment data and metadata
+
+    Example:
+        >>> loaded_data = load_grouped_data(...)
+        >>> df = combine_loaded_data(loaded_data)
+        >>> print(df.columns)
+        Index(['query_id', 'target_id', ..., 'accession', 'species_identifier',
+               'mmseqs90.stat1', 'motupan.stat2'], dtype='object')
+    """
+    dfs = []
+    for entry in loaded_data:
+        if entry["m8_data"] is None:
+            continue  # Skip entries without alignment data
+        
+        # Base dataframe with alignment results
+        df = entry["m8_data"].copy()
+        
+        # Add metadata columns
+        metadata = entry["metadata"]
+        for key, value in metadata.items():
+            df[key] = value
+        
+        # Flatten and merge MMseqs90 JSON data
+        mmseqs_dict = {}
+        if entry["mmseqs90_data"] is not None:
+            mmseqs_dict = pd.json_normalize(entry["mmseqs90_data"], sep="_").iloc[0].to_dict()
+        
+        # Flatten and merge Motupan JSON data
+        motupan_dict = {}
+        if entry["motupan_data"] is not None:
+            motupan_dict = pd.json_normalize(entry["motupan_data"], sep="_").iloc[0].to_dict()
+        
+        # Combine all additional data
+        combined_data = {**mmseqs_dict, **motupan_dict}
+        df = df.assign(**combined_data)
+        
+        dfs.append(df)
+    
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
