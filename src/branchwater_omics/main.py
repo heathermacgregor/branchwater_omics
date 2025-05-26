@@ -167,7 +167,7 @@ def get_pangenome_results(tsv_path):
     df_clean = df_clean[df_clean['ncbi_assembly_level'].isin(valid_levels)]
     # Replace infinite values with NaN
     contig_vs_scaffold(
-        df.replace([np.inf, -np.inf], np.nan, inplace=True), 
+        df_clean, 
         valid_levels, 
         '/global/homes/m/macgrego/figures/contig_vs_scaffold.png'
     )
