@@ -7,6 +7,7 @@ from typing import List, Dict
 
 import json
 import pandas as pd
+import numpy as np
 from tqdm import tqdm
 
 # ========================== INITIALIZATION & CONFIGURATION ========================== #
@@ -251,3 +252,57 @@ def load_grouped_data(
             pbar.update(1)
     
     return loaded_data
+
+
+def build_and_parse_file_dict(directory, sub_dirs=None, files=None, parsed=True):
+    """
+    Recursively builds and parses files in a directory structure.
+    Returns a nested dict: { sub_dir: { filename: DataFrame|dict|path } }.
+    Shows one accurate tqdm bar for just the matching files.
+    """
+    # defaults
+    sub_dirs = sub_dirs or ['viruses', 'plasmids']
+    files = files or [
+        'all_matched_clusters_across_clade_df.csv',
+        'aux_core_cluster_matches_table.csv',
+        'geNomad_ids_across_clade_df.csv',
+        'results_dict_original_format.npy'
+    ]
+    sub_dirs_set = set(sub_dirs)
+
+    # Phase 1: count how many matching files there are
+    total = sum(
+        1
+        for root, _, filenames in os.walk(directory)
+        for f in filenames
+        if os.path.basename(root) in sub_dirs_set and f in files
+    )
+
+    file_dict = defaultdict(dict)
+    pbar = tqdm(total=total, desc="Processing files")
+
+    # Phase 2: walk & parse
+    for root, _, filenames in os.walk(directory):
+        category = os.path.basename(root)
+        if category not in sub_dirs_set:
+            continue
+
+        for fname in filenames:
+            if fname not in files:
+                continue
+
+            path = os.path.join(root, fname)
+
+            if parsed:
+                if fname.endswith('.csv'):
+                    file_dict[category][fname] = pd.read_csv(path)
+                elif fname.endswith('.npy'):
+                    file_dict[category][fname] = np.load(path, allow_pickle=True).item()
+            else:
+                file_dict[category][fname] = path
+
+            pbar.update(1)
+
+    pbar.close()
+    return dict(file_dict)
+
