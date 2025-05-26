@@ -165,7 +165,12 @@ def get_pangenome_results(tsv_path):
     # Optional: Filter valid assembly levels
     valid_levels = ['Contig', 'Scaffold', 'Complete Genome']
     df_clean = df_clean[df_clean['ncbi_assembly_level'].isin(valid_levels)]
-    contig_vs_scaffold(df, valid_levels, '/global/homes/m/macgrego/figures/contig_vs_scaffold.png')
+    # Replace infinite values with NaN
+    contig_vs_scaffold(
+        df.replace([np.inf, -np.inf], np.nan, inplace=True), 
+        valid_levels, 
+        '/global/homes/m/macgrego/figures/contig_vs_scaffold.png'
+    )
 
     # Geospatial Analysis
     # Map genomes by geographic location using ncbi_lat_lon.
