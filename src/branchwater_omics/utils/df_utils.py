@@ -67,3 +67,27 @@ def find_common_substrings(
     )
     
     return result_df
+
+
+def parse_coordinate(coord_str):
+    """
+    Convert strings like "46.17467 N 123.8493 W" to signed decimal degrees.
+    Returns (lat, lon) or (NaN, NaN) if invalid.
+    """
+    if pd.isna(coord_str) or coord_str.lower() == "none":
+        return (np.nan, np.nan)
+    
+    # Extract numbers and directions using regex
+    matches = re.findall(r"([\d.]+)\s*([NS]?)[,\s]*([\d.]+)\s*([EW]?)", coord_str, re.IGNORECASE)
+    
+    if not matches:
+        return (np.nan, np.nan)
+    
+    lat_val, lat_dir, lon_val, lon_dir = matches[0]
+    
+    try:
+        lat = float(lat_val) * (-1 if lat_dir.upper() in ('S', 'W') else 1)
+        lon = float(lon_val) * (-1 if lon_dir.upper() in ('W', 'S') else 1)
+        return (lat, lon)
+    except:
+        return (np.nan, np.nan)
