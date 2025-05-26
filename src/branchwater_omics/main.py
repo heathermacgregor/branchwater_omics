@@ -401,7 +401,7 @@ def main():
     # Load all data sources
     branchwater_df = get_branchwater_results(branchwater_results_tsv)
     motupan_data = get_motupan_results(motupan_90_mmseqs_dir, motupan_90_wdir_dir)
-    print(motupan_data[0].keys())
+    print(motupan_data[0]['metadata'].keys())
     """
     #genomad_data = get_genomad_results(genomad_raw_results_dir, genomad_parsed_results_dir)
     #eggnog_data = get_eggnog_results(eggnog_annotations_dir)
