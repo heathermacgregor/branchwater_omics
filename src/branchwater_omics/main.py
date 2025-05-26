@@ -219,7 +219,7 @@ def analyze_dataframe_linkage(dataframes, dataframe_names, sample_size=1000,
             unique_count = clean_series.nunique()
             
             profile[col] = {
-                'sample': set(clean_series.sample(min(sample_size, len(clean_series))) 
+                'sample': set(clean_series.sample(min(sample_size, len(clean_series)))) 
                            if not clean_series.empty else set(),
                 'dtype': df[col].dtype,
                 'unique': unique_count,
