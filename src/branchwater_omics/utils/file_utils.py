@@ -309,51 +309,54 @@ def build_and_parse_file_dict(directory, sub_dirs=None, files=None, parsed=True)
 
 def combine_loaded_data(loaded_data: List[Dict]) -> pd.DataFrame:
     """
-    Combines loaded data from load_grouped_data into a single consolidated DataFrame.
-
-    Merges m8 alignment data with metadata and JSON results (MMseqs90 and Motupan)
-    into one row per alignment, enriched with contextual information.
-
-    Args:
-        loaded_data: Output from load_grouped_data(), containing structured data entries
-
-    Returns:
-        pd.DataFrame: Consolidated dataframe with all alignment data and metadata
-
-    Example:
-        >>> loaded_data = load_grouped_data(...)
-        >>> df = combine_loaded_data(loaded_data)
-        >>> print(df.columns)
-        Index(['query_id', 'target_id', ..., 'accession', 'species_identifier',
-               'mmseqs90.stat1', 'motupan.stat2'], dtype='object')
+    Combines loaded data into a single DataFrame while handling list-type JSON values.
     """
     dfs = []
     for entry in loaded_data:
-        if entry["m8_data"] is None:
-            continue  # Skip entries without alignment data
-        
+        if entry["m8_data"] is None or entry["m8_data"].empty:
+            continue
+
         # Base dataframe with alignment results
         df = entry["m8_data"].copy()
-        
-        # Add metadata columns
+
+        # Add metadata
         metadata = entry["metadata"]
         for key, value in metadata.items():
             df[key] = value
-        
-        # Flatten and merge MMseqs90 JSON data
-        mmseqs_dict = {}
-        if entry["mmseqs90_data"] is not None:
-            mmseqs_dict = pd.json_normalize(entry["mmseqs90_data"], sep="_").iloc[0].to_dict()
-        
-        # Flatten and merge Motupan JSON data
-        motupan_dict = {}
-        if entry["motupan_data"] is not None:
-            motupan_dict = pd.json_normalize(entry["motupan_data"], sep="_").iloc[0].to_dict()
-        
-        # Combine all additional data
-        combined_data = {**mmseqs_dict, **motupan_dict}
-        df = df.assign(**combined_data)
-        
+
+        # Process JSON data with list handling
+        def process_json(data):
+            if data is None:
+                return {}
+            normalized = pd.json_normalize(data, sep="_")
+            if normalized.empty:
+                return {}
+            row = normalized.iloc[0]
+            return {
+                k: json.dumps(v) if isinstance(v, list) else v 
+                for k, v in row.to_dict().items()
+            }
+
+        # Merge processed JSON data
+        combined_data = {
+            **process_json(entry["mmseqs90_data"]),
+            **process_json(entry["motupan_data"])
+        }
+
+        # Assign JSON data safely
+        try:
+            df = df.assign(**combined_data)
+        except ValueError as e:
+            if "Length of values" in str(e):
+                # Fallback: Convert problematic columns to strings
+                for k, v in combined_data.items():
+                    if isinstance(v, (list, np.ndarray)):
+                        df[k] = json.dumps(v)
+                    else:
+                        df[k] = v
+            else:
+                raise
+
         dfs.append(df)
-    
+
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
