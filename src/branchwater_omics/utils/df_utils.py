@@ -4,6 +4,7 @@ from collections import Counter
 import re
 from typing import List, Tuple, Set
 
+import numpy as np
 import pandas as pd
 
 # ==================================== FUNCTIONS ===================================== #
