@@ -1,11 +1,12 @@
 # ===================================== IMPORTS ====================================== #
 
+from collections import defaultdict
 import os
 import re
-from collections import defaultdict
+from typing import List, Dict
+
 import json
 import pandas as pd
-from typing import List, Dict
 from tqdm import tqdm
 
 # ========================== INITIALIZATION & CONFIGURATION ========================== #
@@ -25,6 +26,7 @@ def get_files_in_dir(dir_path: str) -> List[str]:
     """
     with os.scandir(dir_path) as entries:
         return [entry.name for entry in entries if entry.is_file()]
+        
 
 def get_dirs_in_dir(dir_path: str) -> List[str]:
     """
@@ -38,6 +40,7 @@ def get_dirs_in_dir(dir_path: str) -> List[str]:
     """
     with os.scandir(dir_path) as entries:
         return [entry.name for entry in entries if entry.is_dir()]
+        
 
 def group_mmseqs_and_wdir_files(
   motupan_90_mmseqs_dir: str, 
@@ -138,3 +141,113 @@ def group_mmseqs_and_wdir_files(
     file_groups = {k: v for k, v in file_groups.items() if any(v.values())}
     
     return file_groups
+    
+
+def load_grouped_data(
+    grouped_data,
+    read_m8: bool = True,
+    read_json: bool = True,
+    use_progress: bool = True
+) -> List[Dict]:
+    """
+    Load and consolidate data from grouped file paths into structured data entries.
+    
+    Processes file groups created by group_mmseqs_and_wdir_files() to load:
+    - MMseqs tabular data (.m8 files)
+    - MMseqs JSON results
+    - Motupan JSON results
+    Handles errors gracefully while maintaining progress visualization.
+
+    Args:
+        grouped_data: Input data structure from group_mmseqs_and_wdir_files(),
+                      either as a dict (accession-keyed) or list of group dicts
+        read_m8: Whether to load MMseqs .m8 tabular data (default: True)
+        read_json: Whether to load JSON files (both MMseqs and Motupan) (default: True)
+        use_progress: Show progress bar with accession tracking (default: True)
+
+    Returns:
+        List of dictionaries containing structured data, each with:
+        - metadata: Accession information and species identifiers
+        - m8_data: DataFrame with MMseqs alignment results (if loaded)
+        - mmseqs90_data: MMseqs JSON analysis results (if loaded)
+        - motupan_data: Motupan JSON results (nested structure simplified)
+
+    Raises:
+        FileNotFoundError: If referenced files in group_data don't exist
+        JSONDecodeError: If JSON files contain invalid syntax (captured and reported)
+        pd.errors.ParserError: For malformed .m8 files (captured and reported)
+
+    Example:
+        >>> grouped = group_mmseqs_and_wdir_files("mmseqs_dir", "wdir_dir")
+        >>> loaded = load_grouped_data(grouped, read_m8=True, read_json=True)
+        >>> first_entry = loaded[0]
+        >>> print(first_entry['metadata']['accession'])
+        'GCA_123456.1'
+        >>> print(first_entry['m8_data'].columns)
+        Index(['query_id', 'target_id', 'identity', ...], dtype='object')
+    """
+    if isinstance(grouped_data, dict):
+        grouped_data = list(grouped_data.values())
+    
+    loaded_data = []
+    
+    with tqdm(
+        total=len(grouped_data),
+        desc="Loading data",
+        disable=not use_progress,
+        unit="group",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+    ) as pbar:
+        for group in grouped_data:
+            current_accession = group.get("accession", "unknown")
+            pbar.set_postfix_str(f"ACC: {current_accession[:15]}")  # Show truncated accession
+            
+            entry = {
+                "metadata": {
+                    "accession": current_accession,
+                    "species_identifier": group.get("species_identifier"),
+                    "species_name": group.get("species_name"),
+                    "db": group.get("db"),
+                },
+                "m8_data": None,
+                "mmseqs90_data": None,
+                "motupan_data": None
+            }
+            
+            # Load .m8 file (silent on success)
+            if read_m8 and group.get("m8_file"):
+                try:
+                    entry["m8_data"] = pd.read_csv(
+                        group["m8_file"], 
+                        sep="\t", 
+                        header=None,
+                        comment='#',
+                        names=[
+                            "query_id", "target_id", "identity", "alignment_length",
+                            "mismatches", "gap_openings", "q_start", "q_end",
+                            "t_start", "t_end", "e_value", "bit_score"
+                        ]
+                    )
+                except Exception as e:
+                    tqdm.write(f"\nError in {group['m8_file']}: {str(e)}")
+            
+            # Load JSON files (silent on success)
+            if read_json:
+                for tool in ["mmseqs90", "motupan"]:
+                    json_path = group.get(f"{tool}_json")
+                    if json_path:
+                        try:
+                            with open(json_path, "r") as f:
+                                data = json.load(f)
+                                # For "motupan", extract the first nested value from the JSON
+                                if tool == "motupan":
+                                    entry[f"{tool}_data"] = next(iter(data.values()))
+                                else:
+                                    entry[f"{tool}_data"] = data
+                        except Exception as e:
+                            tqdm.write(f"\nError in {json_path}: {str(e)}")
+            
+            loaded_data.append(entry)
+            pbar.update(1)
+    
+    return loaded_data
