@@ -204,6 +204,8 @@ def analyze_dataframe_linkage(dataframes, dataframe_names, sample_size=1000):
     Returns:
         dict: Analysis results with linkage potential
     """
+    print(df1.columns)
+    print(df2.columns)
     analysis_results = {}
     
     # Check all pairwise combinations
