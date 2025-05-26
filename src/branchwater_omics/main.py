@@ -357,7 +357,45 @@ def print_linkage_analysis(results):
                 print(f"  → Unique values: {match['unique_values'][0]} vs {match['unique_values'][1]}")
                 print(f"  → Strength: {match['strength'].upper()}")
                 print("-" * 50)
-                                  
+
+def save_linkage_analysis(results, output_path):
+    """Save linkage analysis results to specified file path"""
+    with open(output_path, 'w') as f:
+        # Write header
+        f.write("="*80 + "\n")
+        f.write("BRANCHWATER OMICS DATASET LINKAGE REPORT\n")
+        f.write("="*80 + "\n\n")
+        
+        # Write analysis content
+        for pair, data in results.items():
+            f.write(f"\n=== LINKAGE ANALYSIS: {pair} ===\n")
+            
+            # Direct matches section
+            if data['direct_matches']:
+                f.write("\nDIRECT COLUMN MATCHES:\n")
+                for col, stats in data['direct_matches'].items():
+                    f.write(f"  Column: {col}\n")
+                    f.write(f"  → Data types: {stats['dtypes'][0]} vs {stats['dtypes'][1]}\n")
+                    f.write(f"  → Sample overlap: {stats['overlap_pct']}%\n")
+                    f.write(f"  → Key strength: {stats['strength'].upper()}\n")
+                    f.write("-"*60 + "\n")
+            
+            # Cross matches section
+            if data['cross_matches']:
+                f.write("\nPOTENTIAL CROSS-COLUMN MATCHES:\n")
+                for match in sorted(data['cross_matches'], 
+                                 key=lambda x: (-x['overlap_pct_min'], x['columns']):
+                    col1, col2 = match['columns']
+                    f.write(f"  {col1} ({match['dtypes'][0]})  ↔  {col2} ({match['dtypes'][1]})\n")
+                    f.write(f"  → Overlap (min/max): {match['overlap_pct_min']}%/{match['overlap_pct_max']}%\n")
+                    f.write(f"  → Full dataset match: {match['exact_match_pct']}%\n")
+                    f.write(f"  → Type compatible: {'Yes' if match['type_compatible'] else 'No'}\n")
+                    f.write(f"  → Unique values: {match['unique_values'][0]} vs {match['unique_values'][1]}\n")
+                    f.write(f"  → Strength: {match['strength'].upper()}\n")
+                    f.write("-"*60 + "\n")
+                    
+            f.write("\n" + "="*80 + "\n")
+            
 # ==================================== MAIN ========================================== #
 
 def main():
@@ -390,11 +428,16 @@ def main():
         sample_size=500
     )
     
-    # Print results
+    # Print to console
     print("\n" + "="*60)
     print("DATAFRAME LINKAGE ANALYSIS RESULTS")
     print("="*60)
     print_linkage_analysis(linkage_results)
+    
+    # Save to file
+    output_path = '/global/homes/m/macgrego/branchwater_omics/merge_columns.txt'
+    save_linkage_analysis(linkage_results, output_path)
+    print(f"\nFull analysis saved to: {output_path}")
     
     # Example integration using discovered links
     if 'branchwater_metadata <-> pangenome_metadata' in linkage_results:
