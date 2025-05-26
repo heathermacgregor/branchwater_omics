@@ -188,35 +188,58 @@ def get_pangenome_results(tsv_path):
 
 # ============================= DATAFRAME LINKAGE ANALYSIS =========================== #
 
-def analyze_dataframe_linkage(dataframes, dataframe_names, sample_size=1000):
+def analyze_dataframe_linkage(dataframes, dataframe_names, sample_size=1000, 
+                             cross_threshold=50, min_unique=10):
     """
-    Analyze potential linkages between multiple DataFrames by checking:
-    - Shared columns (potential join keys)
+    Analyze potential linkages between DataFrames through:
+    - Direct column matches (shared column names)
+    - Cross-column value matches (different names, similar values)
     - Data type compatibility
-    - Value overlap in shared columns
-    - Missing value percentages
+    - Value overlap analysis
     
     Args:
-        dataframes (list): List of pandas DataFrames to analyze
-        dataframe_names (list): Names corresponding to each DataFrame
-        sample_size (int): Number of values to sample for overlap check
+        dataframes (list): List of pandas DataFrames
+        dataframe_names (list): Names for each DataFrame
+        sample_size (int): Number of values to sample per column
+        cross_threshold (int): Minimum overlap percentage to consider cross-column matches
+        min_unique (int): Minimum unique values required for column comparison
     
     Returns:
-        dict: Analysis results with linkage potential
+        dict: Detailed linkage analysis with match quality metrics
     """
-    print(dataframes[0].columns)
-    print(dataframes[1].columns)
     analysis_results = {}
     
-    # Check all pairwise combinations
+    # Precompute sampled values and unique counts for all columns
+    column_profiles = []
+    for df in dataframes:
+        profile = {}
+        for col in df.columns:
+            # Clean and sample column values
+            clean_series = df[col].dropna().astype(str).str.strip().str.lower()
+            unique_count = clean_series.nunique()
+            
+            profile[col] = {
+                'sample': set(clean_series.sample(min(sample_size, len(clean_series))) 
+                           if not clean_series.empty else set(),
+                'dtype': df[col].dtype,
+                'unique': unique_count,
+                'missing_pct': df[col].isna().mean() * 100
+            }
+        column_profiles.append(profile)
+
+    # Compare all DataFrame pairs
     for i, (df1, name1) in enumerate(zip(dataframes, dataframe_names)):
         for j, (df2, name2) in enumerate(zip(dataframes, dataframe_names)):
-            if i >= j:  # Avoid duplicate checks and self-comparison
+            if i >= j:  # Avoid duplicate comparisons
                 continue
                 
-            common_cols = df1.columns.intersection(df2.columns)
-            linkage_info = {}
-            
+            pair_key = f"{name1} <-> {name2}"
+            pair_result = {'direct_matches': {}, 'cross_matches': []}
+            profile1 = column_profiles[i]
+            profile2 = column_profiles[j]
+
+            # 1. Check direct column name matches
+            common_cols = set(df1.columns) & set(df2.columns)
             for col in common_cols:
                 # Data type compatibility check
                 dtype1 = df1[col].dtype
@@ -245,25 +268,93 @@ def analyze_dataframe_linkage(dataframes, dataframe_names, sample_size=1000):
                                             'moderate' if (overlap_pct > 50 and dtype_compatible) else 
                                             'weak'
                 }
+
+                if common_cols.any():
+                    analysis_results[f"{name1} <-> {name2}"] = linkage_info
+
+            # 2. Find cross-column value matches
+            for col1 in df1.columns:
+                for col2 in df2.columns:
+                    if col1 == col2 or col1 in common_cols or col2 in common_cols:
+                        continue  # Skip direct matches
+                        
+                    # Get column profiles
+                    p1 = profile1.get(col1, {})
+                    p2 = profile2.get(col2, {})
+                    
+                    # Basic validity checks
+                    if not p1 or not p2 or p1['unique'] < min_unique or p2['unique'] < min_unique:
+                        continue
+                    
+                    # Calculate value overlap
+                    overlap = len(p1['sample'] & p2['sample'])
+                    if overlap == 0:
+                        continue
+                        
+                    # Calculate overlap percentages
+                    max_sample = max(len(p1['sample']), len(p2['sample']))
+                    min_sample = min(len(p1['sample']), len(p2['sample']))
+                    overlap_pct_min = (overlap / min_sample) * 100
+                    overlap_pct_max = (overlap / max_sample) * 100
+                    
+                    if overlap_pct_min >= cross_threshold:
+                        # Calculate full dataset statistics
+                        exact_matches = (df1[col1].astype(str).str.lower().isin(
+                            df2[col2].astype(str).str.lower()).mean() * 100
+                        
+                        # Type compatibility check
+                        type_compatible = pd.api.types.is_dtype_equal(p1['dtype'], p2['dtype'])
+                        
+                        match_strength = 'strong' if (overlap_pct_min > 75 and type_compatible) \
+                            else 'moderate' if (overlap_pct_min > 50) else 'weak'
+                        
+                        pair_result['cross_matches'].append({
+                            'columns': (col1, col2),
+                            'overlap_pct_min': round(overlap_pct_min, 1),
+                            'overlap_pct_max': round(overlap_pct_max, 1),
+                            'exact_match_pct': round(exact_matches, 1),
+                            'dtypes': (str(p1['dtype']), str(p2['dtype'])),
+                            'type_compatible': type_compatible,
+                            'strength': match_strength,
+                            'missing_pct': (round(p1['missing_pct'], 1), 
+                                          round(p2['missing_pct'], 1)),
+                            'unique_values': (p1['unique'], p2['unique'])
+                        })
+
+            analysis_results[pair_key] = pair_result
             
-            if common_cols.any():
-                analysis_results[f"{name1} <-> {name2}"] = linkage_info
-                
     return analysis_results
 
 def print_linkage_analysis(results):
-    """Pretty-print the linkage analysis results"""
-    for pair, linkages in results.items():
-        print(f"\nLinkage analysis for: {pair}")
-        for col, stats in linkages.items():
-            print(f"  Column: {col}")
-            print(f"  → Data types: {stats['dtypes'][0]} vs {stats['dtypes'][1]}")
-            print(f"  → Type compatible: {'Yes' if stats['dtype_compatible'] else 'No'}")
-            print(f"  → Sample overlap: {stats['sample_overlap_pct']}%")
-            print(f"  → Missing values: {stats['missing_pct_df1']}% vs {stats['missing_pct_df2']}%")
-            print(f"  → Key strength: {stats['potential_key_strength'].upper()}")
-            print("─" * 50)
-
+    """Enhanced printing with cross-column matches"""
+    for pair, data in results.items():
+        print(f"\n=== LINKAGE ANALYSIS: {pair} ===")
+        
+        # Direct matches
+        if data['direct_matches']:
+            print("\nDIRECT COLUMN MATCHES:")
+            for col, stats in data['direct_matches'].items():
+                print(f"  Column: {col}")
+                print(f"  → Type: {stats['dtypes'][0]} vs {stats['dtypes'][1]}")
+                print(f"  → Overlap: {stats['overlap_pct']}%")
+                print(f"  → Strength: {stats['strength'].upper()}")
+                print("-" * 50)
+                
+        # Cross matches
+        if data['cross_matches']:
+            print("\nPOTENTIAL CROSS-COLUMN MATCHES:")
+            for match in sorted(data['cross_matches'], 
+                              key=lambda x: (-x['overlap_pct_min'], x['columns'])):
+                print(f"  {match['columns'][0]} ({match['dtypes'][0]})  ↔  "
+                      f"{match['columns'][1]} ({match['dtypes'][1]})")
+                print(f"  → Overlap (min/max): {match['overlap_pct_min']}%/{match['overlap_pct_max']}%")
+                print(f"  → Full dataset match: {match['exact_match_pct']}%")
+                print(f"  → Type compatible: {'Yes' if match['type_compatible'] else 'No'}")
+                print(f"  → Missing values: {match['missing_pct'][0]}% vs {match['missing_pct'][1]}%")
+                print(f"  → Unique values: {match['unique_values'][0]} vs {match['unique_values'][1]}")
+                print(f"  → Strength: {match['strength'].upper()}")
+                print("-" * 50)
+                                  
 # ==================================== MAIN ========================================== #
 
 def main():
