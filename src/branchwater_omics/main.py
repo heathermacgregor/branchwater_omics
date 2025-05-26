@@ -299,8 +299,11 @@ def analyze_dataframe_linkage(dataframes, dataframe_names, sample_size=1000,
                     
                     if overlap_pct_min >= cross_threshold:
                         # Calculate full dataset statistics
-                        exact_matches = (df1[col1].astype(str).str.lower().isin(
-                            df2[col2].astype(str).str.lower()).mean() * 100
+                        exact_matches = (
+                            df1[col1].astype(str).str.lower().isin(
+                                df2[col2].astype(str).str.lower()
+                            ).mean() * 100
+                        )
                         
                         # Type compatibility check
                         type_compatible = pd.api.types.is_dtype_equal(p1['dtype'], p2['dtype'])
