@@ -6,7 +6,7 @@ import os
 
 # ================================== LOCAL IMPORTS =================================== #
 
-from figures import save_figure
+from branchwater_omics.figures.figures import save_figure
 
 # ==================================== FUNCTIONS ===================================== #
 
