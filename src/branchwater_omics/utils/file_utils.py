@@ -307,56 +307,54 @@ def build_and_parse_file_dict(directory, sub_dirs=None, files=None, parsed=True)
     return dict(file_dict)
 
 
+import pandas as pd
+import json
+from typing import List, Dict
+
 def combine_loaded_data(loaded_data: List[Dict]) -> pd.DataFrame:
     """
-    Combines loaded data into a single DataFrame while handling list-type JSON values.
+    Combines loaded data into a consolidated DataFrame using efficient concatenation
+    to avoid memory fragmentation.
     """
     dfs = []
     for entry in loaded_data:
         if entry["m8_data"] is None or entry["m8_data"].empty:
             continue
 
-        # Base dataframe with alignment results
+        # Base alignment data
         df = entry["m8_data"].copy()
 
-        # Add metadata
+        # Process metadata into a DataFrame (avoids iterative insertions)
         metadata = entry["metadata"]
-        for key, value in metadata.items():
-            df[key] = value
+        metadata_df = pd.DataFrame(
+            {k: [v] * len(df) for k, v in metadata.items()},
+            index=df.index
+        )
 
-        # Process JSON data with list handling
-        def process_json(data):
+        # Process JSON data with list-to-string conversion
+        def safe_json_convert(data):
             if data is None:
                 return {}
             normalized = pd.json_normalize(data, sep="_")
             if normalized.empty:
                 return {}
-            row = normalized.iloc[0]
             return {
-                k: json.dumps(v) if isinstance(v, list) else v 
-                for k, v in row.to_dict().items()
+                k: json.dumps(v) if isinstance(v, (list, dict)) else v
+                for k, v in normalized.iloc[0].to_dict().items()
             }
 
-        # Merge processed JSON data
-        combined_data = {
-            **process_json(entry["mmseqs90_data"]),
-            **process_json(entry["motupan_data"])
+        # Combine all JSON-derived columns
+        json_data = {
+            **safe_json_convert(entry["mmseqs90_data"]),
+            **safe_json_convert(entry["motupan_data"])
         }
+        json_df = pd.DataFrame(
+            {k: [v] * len(df) for k, v in json_data.items()},
+            index=df.index
+        )
 
-        # Assign JSON data safely
-        try:
-            df = df.assign(**combined_data)
-        except ValueError as e:
-            if "Length of values" in str(e):
-                # Fallback: Convert problematic columns to strings
-                for k, v in combined_data.items():
-                    if isinstance(v, (list, np.ndarray)):
-                        df[k] = json.dumps(v)
-                    else:
-                        df[k] = v
-            else:
-                raise
-
-        dfs.append(df)
+        # Single concatenation operation
+        combined = pd.concat([df, metadata_df, json_df], axis=1)
+        dfs.append(combined)
 
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
