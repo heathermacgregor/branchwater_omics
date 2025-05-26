@@ -383,8 +383,7 @@ def save_linkage_analysis(results, output_path):
             # Cross matches section
             if data['cross_matches']:
                 f.write("\nPOTENTIAL CROSS-COLUMN MATCHES:\n")
-                for match in sorted(data['cross_matches'], 
-                                 key=lambda x: (-x['overlap_pct_min'], x['columns']):
+                for match in sorted(data['cross_matches'], key=lambda x: (-x['overlap_pct_min'], x['columns'])):
                     col1, col2 = match['columns']
                     f.write(f"  {col1} ({match['dtypes'][0]})  ↔  {col2} ({match['dtypes'][1]})\n")
                     f.write(f"  → Overlap (min/max): {match['overlap_pct_min']}%/{match['overlap_pct_max']}%\n")
