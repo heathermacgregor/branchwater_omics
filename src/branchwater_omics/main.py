@@ -78,7 +78,7 @@ def get_motupan_results(mmseqs_dir_path, wdir_dir_path):
       mmseqs_dir_path, wdir_dir_path
     )
     
-    subset_file_groups = dict(list(file_groups.items())[:100])
+    subset_file_groups = dict(list(file_groups.items())[:2])
     loaded_data = load_grouped_data(
         subset_file_groups.values(),
         read_m8=True,
