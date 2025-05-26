@@ -19,6 +19,7 @@ from branchwater_omics.utils.file_utils import (
     get_dirs_in_dir, 
     group_mmseqs_and_wdir_files, 
     load_grouped_data, 
+    combine_loaded_data,
     build_and_parse_file_dict
 )
 from branchwater_omics.utils.df_utils import (
@@ -401,12 +402,8 @@ def main():
     # Load all data sources
     branchwater_df = get_branchwater_results(branchwater_results_tsv)
     motupan_data = get_motupan_results(motupan_90_mmseqs_dir, motupan_90_wdir_dir)
-    for x in ['metadata', 'm8_data', 'mmseqs90_data', 'motupan_data']:
-        try:
-            print(motupan_data[0][x].keys())
-        except:
-            print(type(motupan_data[0][x]))
-            continue
+    motupan_df = combine_loaded_data(motupan_data)
+    print(motupan_df.head())
     """
     #genomad_data = get_genomad_results(genomad_raw_results_dir, genomad_parsed_results_dir)
     #eggnog_data = get_eggnog_results(eggnog_annotations_dir)
