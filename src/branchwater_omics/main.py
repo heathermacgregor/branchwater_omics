@@ -413,16 +413,15 @@ def main():
     
     # Prepare DataFrames for linkage analysis
     analysis_dataframes = [
-        #branchwater_df,
+        branchwater_df,
         pangenome_df,
         #pd.DataFrame(genomad_data),  # Convert genomad dict to DataFrame
-        pd.DataFrame(motupan_data[0]['m8_data']) if motupan_data else pd.DataFrame()  # Example motupan data
+        motupan_df  # Example motupan data
     ]
     
     dataframe_names = [
         'branchwater_metadata',
         'pangenome_metadata', 
-        'genomad_annotations',
         'motupan_clusters'
     ]
     
