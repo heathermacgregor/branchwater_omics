@@ -313,48 +313,72 @@ from typing import List, Dict
 
 def combine_loaded_data(loaded_data: List[Dict]) -> pd.DataFrame:
     """
-    Combines loaded data into a consolidated DataFrame using efficient concatenation
-    to avoid memory fragmentation.
+    Memory-efficient combination of loaded data using columnar operations
+    and chunked processing.
     """
-    dfs = []
+    chunks = []
     for entry in loaded_data:
         if entry["m8_data"] is None or entry["m8_data"].empty:
             continue
 
-        # Base alignment data
-        df = entry["m8_data"].copy()
-
-        # Process metadata into a DataFrame (avoids iterative insertions)
+        # Use the base DataFrame without copying initially
+        df = entry["m8_data"]
+        
+        # Process metadata as scalar expansions
         metadata = entry["metadata"]
-        metadata_df = pd.DataFrame(
-            {k: [v] * len(df) for k, v in metadata.items()},
-            index=df.index
-        )
-
-        # Process JSON data with list-to-string conversion
-        def safe_json_convert(data):
+        metadata_cols = {k: v for k, v in metadata.items()}
+        
+        # Process JSON data with type conversion
+        def process_json(data):
             if data is None:
                 return {}
-            normalized = pd.json_normalize(data, sep="_")
-            if normalized.empty:
+            try:
+                normalized = pd.json_normalize(data, sep="_")
+                return normalized.iloc[0].to_dict() if not normalized.empty else {}
+            except Exception as e:
                 return {}
-            return {
-                k: json.dumps(v) if isinstance(v, (list, dict)) else v
-                for k, v in normalized.iloc[0].to_dict().items()
-            }
 
-        # Combine all JSON-derived columns
         json_data = {
-            **safe_json_convert(entry["mmseqs90_data"]),
-            **safe_json_convert(entry["motupan_data"])
+            **process_json(entry["mmseqs90_data"]),
+            **process_json(entry["motupan_data"])
         }
-        json_df = pd.DataFrame(
-            {k: [v] * len(df) for k, v in json_data.items()},
-            index=df.index
-        )
+        
+        # Convert list/dict values to JSON strings
+        json_cols = {
+            k: json.dumps(v) if isinstance(v, (list, dict)) else v
+            for k, v in json_data.items()
+        }
+        
+        # Create new columns through efficient assignment
+        try:
+            # Create new columns in bulk
+            new_cols = {**metadata_cols, **json_cols}
+            
+            # Use .assign() with dictionary expansion
+            modified = df.assign(**new_cols)
+            
+            # Reduce memory usage by converting to optimal dtypes
+            modified = modified.astype({
+                k: "category" if modified[k].nunique() / len(modified) < 0.5 else None
+                for k in metadata_cols.keys()
+            })
+            
+            chunks.append(modified)
+            
+        except ValueError as e:
+            # Fallback for mismatched lengths
+            for k, v in new_cols.items():
+                df[k] = v
+            chunks.append(df.copy())
 
-        # Single concatenation operation
-        combined = pd.concat([df, metadata_df, json_df], axis=1)
-        dfs.append(combined)
-
-    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+    # Concatenate and optimize memory
+    if not chunks:
+        return pd.DataFrame()
+    
+    final_df = pd.concat(chunks, ignore_index=True)
+    
+    # Downcast numerical columns
+    for col in final_df.select_dtypes(include='number'):
+        final_df[col] = pd.to_numeric(final_df[col], downcast='unsigned')
+    
+    return final_df
