@@ -309,76 +309,102 @@ def build_and_parse_file_dict(directory, sub_dirs=None, files=None, parsed=True)
 
 import pandas as pd
 import json
-from typing import List, Dict
+import psutil
+import os
+from typing import List, Dict, Generator
+from functools import wraps
+from itertools import islice
 
+def monitor_memory(func):
+    """Decorator to track memory usage during processing"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        process = psutil.Process(os.getpid())
+        start_mem = process.memory_info().rss
+        result = func(*args, **kwargs)
+        end_mem = process.memory_info().rss
+        print(f"Memory usage for {func.__name__}:")
+        print(f"  Start: {start_mem / 1024**2:.1f}MB")
+        print(f"  End: {end_mem / 1024**2:.1f}MB")
+        print(f"  Delta: {(end_mem - start_mem)/1024**2:.1f}MB")
+        return result
+    return wrapper
+
+def chunk_processor(chunk_size: int = 100):
+    """Decorator factory for chunked DataFrame processing"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(loaded_data, *args, **kwargs):
+            iterator = iter(loaded_data)
+            final_dfs = []
+            
+            while True:
+                chunk = list(islice(iterator, chunk_size))
+                if not chunk:
+                    break
+                
+                print(f"\nProcessing chunk {len(final_dfs) + 1}")
+                chunk_result = func(chunk, *args, **kwargs)
+                final_dfs.append(chunk_result)
+                
+                # Explicit memory cleanup
+                del chunk
+                if 'chunk_result' in locals():
+                    del chunk_result
+                    
+            return pd.concat(final_dfs, ignore_index=True) if final_dfs else pd.DataFrame()
+        return wrapper
+    return decorator
+
+@monitor_memory
+@chunk_processor(chunk_size=100)  # Adjust chunk_size based on system memory
 def combine_loaded_data(loaded_data: List[Dict]) -> pd.DataFrame:
-    """
-    Memory-efficient combination of loaded data using columnar operations
-    and chunked processing.
-    """
-    chunks = []
+    """Memory-optimized chunk processor with bulk operations"""
+    chunk_dfs = []
+    
     for entry in loaded_data:
-        if entry["m8_data"] is None or entry["m8_data"].empty:
+        if not entry.get("m8_data") or entry["m8_data"].empty:
             continue
 
-        # Use the base DataFrame without copying initially
+        # Base DataFrame
         df = entry["m8_data"]
         
-        # Process metadata as scalar expansions
+        # Prepare metadata columns
         metadata = entry["metadata"]
-        metadata_cols = {k: v for k, v in metadata.items()}
+        meta_cols = {k: [v] * len(df) for k, v in metadata.items()}
         
-        # Process JSON data with type conversion
-        def process_json(data):
-            if data is None:
-                return {}
-            try:
-                normalized = pd.json_normalize(data, sep="_")
-                return normalized.iloc[0].to_dict() if not normalized.empty else {}
-            except Exception as e:
-                return {}
-
-        json_data = {
-            **process_json(entry["mmseqs90_data"]),
-            **process_json(entry["motupan_data"])
-        }
+        # Process JSON data with type handling
+        json_data = {}
+        for tool in ["mmseqs90", "motupan"]:
+            data = entry.get(f"{tool}_data")
+            if data:
+                try:
+                    flat = pd.json_normalize(data, sep="_").iloc[0].to_dict()
+                    json_data.update({
+                        f"{tool}_{k}": json.dumps(v) if isinstance(v, (list, dict)) else v
+                        for k, v in flat.items()
+                    })
+                except Exception:
+                    pass
+                    
+        json_cols = {k: [v] * len(df) for k, v in json_data.items()}
         
-        # Convert list/dict values to JSON strings
-        json_cols = {
-            k: json.dumps(v) if isinstance(v, (list, dict)) else v
-            for k, v in json_data.items()
-        }
+        # Bulk column creation
+        new_cols_df = pd.DataFrame({**meta_cols, **json_cols}, index=df.index)
         
-        # Create new columns through efficient assignment
-        try:
-            # Create new columns in bulk
-            new_cols = {**metadata_cols, **json_cols}
-            
-            # Use .assign() with dictionary expansion
-            modified = df.assign(**new_cols)
-            
-            # Reduce memory usage by converting to optimal dtypes
-            modified = modified.astype({
-                k: "category" if modified[k].nunique() / len(modified) < 0.5 else None
-                for k in metadata_cols.keys()
-            })
-            
-            chunks.append(modified)
-            
-        except ValueError as e:
-            # Fallback for mismatched lengths
-            for k, v in new_cols.items():
-                df[k] = v
-            chunks.append(df.copy())
-
-    # Concatenate and optimize memory
-    if not chunks:
-        return pd.DataFrame()
+        # Merge with concat to avoid fragmentation
+        merged = pd.concat([df, new_cols_df], axis=1)
+        
+        # Optimize dtypes
+        merged = merged.astype({
+            col: "category" for col in meta_cols.keys()
+            if merged[col].nunique() / len(merged) < 0.5
+        })
+        
+        # Downcast numerics immediately
+        num_cols = merged.select_dtypes(include='number').columns
+        merged[num_cols] = merged[num_cols].apply(pd.to_numeric, downcast='unsigned')
+        
+        chunk_dfs.append(merged)
     
-    final_df = pd.concat(chunks, ignore_index=True)
-    
-    # Downcast numerical columns
-    for col in final_df.select_dtypes(include='number'):
-        final_df[col] = pd.to_numeric(final_df[col], downcast='unsigned')
-    
-    return final_df
+    return pd.concat(chunk_dfs, ignore_index=True) if chunk_dfs else pd.DataFrame()
