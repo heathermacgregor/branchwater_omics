@@ -361,13 +361,15 @@ def chunk_processor(chunk_size: int = 100):
 def combine_loaded_data(loaded_data: List[Dict]) -> pd.DataFrame:
     """Memory-optimized chunk processor with bulk operations"""
     chunk_dfs = []
-    
+
     for entry in loaded_data:
-        if not entry.get("m8_data") or entry["m8_data"].empty:
+        # Proper DataFrame existence and empty check
+        m8_data = entry.get("m8_data")
+        if m8_data is None or m8_data.empty:
             continue
 
-        # Base DataFrame
-        df = entry["m8_data"]
+        # Rest of the processing remains the same
+        df = m8_data
         
         # Prepare metadata columns
         metadata = entry["metadata"]
